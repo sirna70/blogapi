@@ -21,6 +21,8 @@ func main() {
 	postRouter.HandleFunc("", handlers.CreatePost).Methods("POST")
 	postRouter.HandleFunc("/update", handlers.UpdatePost).Methods("PUT")
 	postRouter.HandleFunc("/publish", handlers.PublishPost).Methods("PUT")
+	postRouter.HandleFunc("/delete", handlers.DeletePost).Methods("DELETE")
+	postRouter.HandleFunc("/get", handlers.GetPosts).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(":9090", r))
 }
