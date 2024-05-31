@@ -166,12 +166,25 @@ func DeletePost(w http.ResponseWriter, r *http.Request) {
 	db := utils.ConnectDB()
 	defer db.Close()
 
-	if claims.Role != "admin" && claims.Role != "user" {
+	var status string
+	err := db.QueryRow("SELECT status FROM posts WHERE id = $1", id).Scan(&status)
+	if err != nil {
+		fmt.Println("Error getting post status:", err)
+		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	if status == "publish" && claims.Role != "admin" {
+		http.Error(w, "Forbidden: Only admin can delete published posts", http.StatusForbidden)
+		return
+	}
+
+	if status == "draft" && claims.Role != "admin" && claims.Role != "user" {
 		http.Error(w, "Forbidden: Invalid Role", http.StatusForbidden)
 		return
 	}
 
-	_, err := db.Exec("DELETE FROM tags WHERE posts_id = $1", id)
+	_, err = db.Exec("DELETE FROM tags WHERE posts_id = $1", id)
 	if err != nil {
 		fmt.Println("Error deleting tags:", err)
 		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
