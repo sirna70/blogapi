@@ -20,7 +20,7 @@ func main() {
 	postRouter.Use(middleware.AuthMiddleware)
 	postRouter.HandleFunc("", handlers.CreatePost).Methods("POST")
 	postRouter.HandleFunc("", handlers.UpdatePost).Methods("PUT")
-	postRouter.HandleFunc("/publish/:id", handlers.PublishPost).Methods("PUT")
+	postRouter.HandleFunc("/publish", handlers.PublishPost).Methods("PUT")
 
 	log.Fatal(http.ListenAndServe(":9090", r))
 }
