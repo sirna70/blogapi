@@ -35,14 +35,12 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connect to the database
 	db := utils.ConnectDB()
 	defer db.Close()
 
 	var storedCreds Credentials
 	var role string
 
-	// Fetch the stored hashed password and role for the given username
 	err = db.QueryRow("SELECT password, role FROM users WHERE username=$1", creds.Username).Scan(&storedCreds.Password, &role)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -53,7 +51,6 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compare the stored hashed password with the password provided
 	err = bcrypt.CompareHashAndPassword([]byte(storedCreds.Password), []byte(creds.Password))
 	if err != nil {
 		http.Error(w, "Unauthorized: Invalid Credentials", http.StatusUnauthorized)
@@ -91,7 +88,6 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Println("Error hashing password:", err)
@@ -109,7 +105,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse := map[string]string{"message": "User registered successfully", "status": "success"}
+	jsonResponse := map[string]string{"message": "Account registered successfully", "status": "success"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(jsonResponse)
