@@ -72,7 +72,7 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized: No Claims in Context", http.StatusUnauthorized)
 		return
 	}
-	if claims.Role != "user" && claims.Role != "admin" {
+	if claims.Role != "user" {
 		http.Error(w, "Forbidden: Invalid Role", http.StatusForbidden)
 		return
 	}
@@ -85,8 +85,8 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Memastikan hanya post dengan status "draft" yang dapat diubah
 	if post.Status != "draft" {
+		fmt.Println("ERROR JSON ==", err)
 		http.Error(w, "Forbidden: Only posts with status 'draft' can be updated", http.StatusForbidden)
 		return
 	}
@@ -94,13 +94,28 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 	db := utils.ConnectDB()
 	defer db.Close()
 
-	// Melakukan pembaruan judul dan konten post
 	_, err = db.Exec("UPDATE posts SET title=$1, content=$2 WHERE id=$3",
 		post.Title, post.Content, post.ID)
 	if err != nil {
-		fmt.Println("Error:", err)
+		fmt.Println("Error updating post:", err)
 		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 		return
+	}
+
+	_, err = db.Exec("DELETE FROM tags WHERE posts_id=$1", post.ID)
+	if err != nil {
+		fmt.Println("Error deleting tags:", err)
+		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, tag := range post.Tags {
+		_, err := db.Exec("INSERT INTO tags (label, posts_id) VALUES ($1, $2)", tag, post.ID)
+		if err != nil {
+			fmt.Println("Error inserting tag:", err)
+			http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
