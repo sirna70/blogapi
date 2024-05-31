@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"blog-apii/handlers/middleware"
@@ -39,11 +40,9 @@ func CreatePost(w http.ResponseWriter, r *http.Request) {
 		tags[i] = models.Tag{Label: val}
 	}
 
-	fmt.Println("TEXTTTT==", tags)
-
 	db := utils.ConnectDB()
 	defer db.Close()
-	fmt.Println("tetete==")
+
 	err = db.QueryRow("INSERT INTO posts (title, content, status) VALUES ($1, $2, $3) RETURNING id",
 		post.Title, post.Content, post.Status).Scan(&post.ID)
 	if err != nil {
@@ -73,6 +72,7 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized: No Claims in Context", http.StatusUnauthorized)
 		return
 	}
+
 	if claims.Role != "user" {
 		http.Error(w, "Forbidden: Invalid Role", http.StatusForbidden)
 		return
@@ -81,19 +81,26 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 	var post models.Post
 	err := json.NewDecoder(r.Body).Decode(&post)
 	if err != nil {
-		fmt.Println("ERROR JSON ==", err)
-		http.Error(w, "Bad Request: Invalid JSON", http.StatusBadRequest)
-		return
-	}
 
-	if post.Status != "draft" {
-		fmt.Println("ERROR JSON ==", err)
-		http.Error(w, "Forbidden: Only posts with status 'draft' can be updated", http.StatusForbidden)
+		http.Error(w, "Bad Request: Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	db := utils.ConnectDB()
 	defer db.Close()
+
+	var status string
+	err = db.QueryRow("SELECT status FROM posts WHERE id=$1", post.ID).Scan(&status)
+	if err != nil {
+		fmt.Println("Error getting post status:", err)
+		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	if status != "draft" {
+		http.Error(w, "Forbidden: the status posts is not 'draft', only status 'draft' can be updated", http.StatusForbidden)
+		return
+	}
 
 	_, err = db.Exec("UPDATE posts SET title=$1, content=$2 WHERE id=$3",
 		post.Title, post.Content, post.ID)
@@ -122,6 +129,7 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Post successfully updated")
+
 }
 
 func PublishPost(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +149,6 @@ func PublishPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// w.WriteHeader(http.StatusOK)
 	jsonResponse := map[string]string{"message": "Admin successfully to publish", "status": "success to publish"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -156,35 +163,32 @@ func DeletePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "Bad Request: Missing post ID", http.StatusBadRequest)
-		return
-	}
-
 	db := utils.ConnectDB()
 	defer db.Close()
 
-	var status string
-	err := db.QueryRow("SELECT status FROM posts WHERE id = $1", id).Scan(&status)
-	if err != nil {
-		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+	if claims.Role != "admin" && claims.Role != "user" {
+		http.Error(w, "Forbidden: Invalid Role", http.StatusForbidden)
 		return
 	}
 
-	if claims.Role != "admin" && status != "draft" {
-		http.Error(w, "Forbidden: Only posts with status 'draft' can be deleted by users", http.StatusForbidden)
+	_, err := db.Exec("DELETE FROM tags WHERE posts_id = $1", id)
+	if err != nil {
+		fmt.Println("Error deleting tags:", err)
+		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 		return
 	}
 
 	_, err = db.Exec("DELETE FROM posts WHERE id = $1", id)
 	if err != nil {
+		fmt.Println("Error deleting post:", err)
 		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 		return
 	}
 
+	jsonResponse := map[string]string{"message": "Post successfully deleted", "status": "success"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Post successfully deleted")
+	json.NewEncoder(w).Encode(jsonResponse)
 }
 
 func GetPosts(w http.ResponseWriter, r *http.Request) {
@@ -200,15 +204,11 @@ func GetPosts(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 
-	if claims.Role == "admin" {
-		rows, err = db.Query("SELECT id, title, content, status, publish_date FROM posts")
+	if claims.Role == "admin" || claims.Role == "user" {
+		rows, err = db.Query(`SELECT p.id, p.title, p.content, p.status, p.publish_date, ARRAY_AGG(t.label) AS tags
+		FROM posts p JOIN tags t ON p.id = t.posts_id GROUP BY p.id, p.title, p.content, p.status, p.publish_date`)
 		if err != nil {
-			http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		rows, err = db.Query("SELECT id, title, content, status, publish_date FROM posts WHERE owner_id = $1", claims.Subject)
-		if err != nil {
+			fmt.Println("MASUKKK==", err)
 			http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 			return
 		}
@@ -216,16 +216,38 @@ func GetPosts(w http.ResponseWriter, r *http.Request) {
 
 	defer rows.Close()
 
-	var posts []models.Post
+	var postsMap = make(map[int]*models.Post)
+
 	for rows.Next() {
 		var post models.Post
-		err := rows.Scan(&post.ID, &post.Title, &post.Content, &post.Status, &post.PublishDate)
+		var publishDate sql.NullTime
+		var tagLabels sql.NullString
+
+		err := rows.Scan(&post.ID, &post.Title, &post.Content, &post.Status, &publishDate, &tagLabels)
 		if err != nil {
+			fmt.Println("MASUKKKLAHHHHADINDAA==", err)
 			http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 			return
 		}
-		posts = append(posts, post)
+
+		if _, ok := postsMap[post.ID]; !ok {
+			post.PublishDate = publishDate.Time
+			postsMap[post.ID] = &post
+		}
+
+		if tagLabels.Valid {
+			postsMap[post.ID].Tags = append(postsMap[post.ID].Tags, tagLabels.String)
+		}
 	}
+
+	var posts []models.Post
+	for _, post := range postsMap {
+		posts = append(posts, *post)
+	}
+
+	sort.Slice(posts, func(i, j int) bool {
+		return posts[i].ID < posts[j].ID
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
