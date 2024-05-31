@@ -19,7 +19,7 @@ func main() {
 	postRouter := r.PathPrefix("/posts").Subrouter()
 	postRouter.Use(middleware.AuthMiddleware)
 	postRouter.HandleFunc("", handlers.CreatePost).Methods("POST")
-	postRouter.HandleFunc("", handlers.UpdatePost).Methods("PUT")
+	postRouter.HandleFunc("/update", handlers.UpdatePost).Methods("PUT")
 	postRouter.HandleFunc("/publish", handlers.PublishPost).Methods("PUT")
 
 	log.Fatal(http.ListenAndServe(":9090", r))

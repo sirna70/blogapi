@@ -85,31 +85,27 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	post.Status = "draft"
-	post.PublishDate = time.Time{} // initialize PublishDate to zero value
-
-	tags := make([]models.Tag, len(post.Tags))
-	for i, val := range post.Tags {
-		tags[i] = models.Tag{Label: val}
+	// Memastikan hanya post dengan status "draft" yang dapat diubah
+	if post.Status != "draft" {
+		http.Error(w, "Forbidden: Only posts with status 'draft' can be updated", http.StatusForbidden)
+		return
 	}
-
-	fmt.Println("TEXTTTT==", tags)
 
 	db := utils.ConnectDB()
 	defer db.Close()
-	fmt.Println("tetete==")
-	err = db.QueryRow("UPDATE posts set title=$1, content=$2)",
-		post.Title, post.Content, tags).Scan(&post.ID)
+
+	// Melakukan pembaruan judul dan konten post
+	_, err = db.Exec("UPDATE posts SET title=$1, content=$2 WHERE id=$3",
+		post.Title, post.Content, post.ID)
 	if err != nil {
-		fmt.Println("Error", err)
+		fmt.Println("Error:", err)
 		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(post)
-
+	fmt.Fprintf(w, "Post successfully updated")
 }
 
 func PublishPost(w http.ResponseWriter, r *http.Request) {
