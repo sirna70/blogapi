@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -245,6 +246,79 @@ func GetPosts(w http.ResponseWriter, r *http.Request) {
 
 		if _, ok := postsMap[post.ID]; !ok {
 			post.PublishDate = publishDate.Time
+			postsMap[post.ID] = &post
+		}
+
+		if tagLabels.Valid {
+			postsMap[post.ID].Tags = append(postsMap[post.ID].Tags, tagLabels.String)
+		}
+	}
+
+	var posts []models.Post
+	for _, post := range postsMap {
+		posts = append(posts, *post)
+	}
+
+	sort.Slice(posts, func(i, j int) bool {
+		return posts[i].ID < posts[j].ID
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(posts)
+}
+
+func SearchPostsByTag(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*middleware.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized: No Claims in Context", http.StatusUnauthorized)
+		return
+	}
+
+	tag := r.URL.Query().Get("tag")
+	if tag == "" {
+		http.Error(w, "Bad Request: Missing tag parameter", http.StatusBadRequest)
+		return
+	}
+
+	db := utils.ConnectDB()
+	defer db.Close()
+
+	var rows *sql.Rows
+	var err error
+
+	if claims.Role == "admin" || claims.Role == "user" {
+		rows, err = db.Query(`SELECT p.id, p.title, p.content, p.status, p.publish_date, ARRAY_AGG(t.label) AS tags
+		FROM posts p JOIN tags t ON p.id = t.posts_id
+		WHERE t.label = $1
+		GROUP BY p.id, p.title, p.content, p.status, p.publish_date`, tag)
+	}
+
+	if err != nil {
+		log.Println("Error searching posts by tag:", err)
+		http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var postsMap = make(map[int]*models.Post)
+
+	for rows.Next() {
+		var post models.Post
+		var publishDate sql.NullTime
+		var tagLabels sql.NullString
+
+		err := rows.Scan(&post.ID, &post.Title, &post.Content, &post.Status, &publishDate, &tagLabels)
+		if err != nil {
+			log.Println("Error scanning post:", err)
+			http.Error(w, "Internal Server Error: Database Error", http.StatusInternalServerError)
+			return
+		}
+
+		if _, ok := postsMap[post.ID]; !ok {
+			if publishDate.Valid {
+				post.PublishDate = publishDate.Time
+			}
 			postsMap[post.ID] = &post
 		}
 

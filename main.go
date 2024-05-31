@@ -23,6 +23,7 @@ func main() {
 	postRouter.HandleFunc("/publish", handlers.PublishPost).Methods("PUT")
 	postRouter.HandleFunc("/delete", handlers.DeletePost).Methods("DELETE")
 	postRouter.HandleFunc("/get", handlers.GetPosts).Methods("GET")
+	postRouter.HandleFunc("/search", handlers.SearchPostsByTag).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(":9090", r))
 }
