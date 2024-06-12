@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
+	h "blog-apii/cmd"
 	"blog-apii/handlers"
 	"blog-apii/handlers/middleware"
 
@@ -13,6 +15,11 @@ import (
 func main() {
 	r := mux.NewRouter()
 
+	r.Use(h.CorsMiddleware)
+
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "WELCOME TO BLOGGER SIMPLE")
+	})
 	r.HandleFunc("/login", handlers.Login).Methods("POST")
 	r.HandleFunc("/register", handlers.Register).Methods("POST")
 
